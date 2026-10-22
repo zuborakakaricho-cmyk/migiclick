@@ -8,6 +8,8 @@
   python3 migiclick.py namae      請求書.pdf ... … 中身からファイル名を付ける（中身をClaude Codeに読ませる）
   python3 migiclick.py chiisaku   写真.jpg ...   … 申請用に小さくする（既定500KB以下。手元だけ）
   python3 migiclick.py ichi       写真.jpg ...   … 位置情報（GPS）を消す（手元だけ）
+  python3 migiclick.py makase     ファイル ...   … まとめて選んだファイルを、種類に合わせて振り分ける
+                                                  （録音・メモ→議事録、PDF→名前付け、写真→申請用に小さくする）
   python3 migiclick.py doctor                    … 要る道具がそろっているか確かめる
 
 決まりごと:
@@ -451,17 +453,36 @@ ACTIONS = {"gijiroku": (AUDIO | TEXT, do_gijiroku, "議事録"), "mojiokoshi": (
            "ichi": (IMAGE, do_ichi, "位置情報を消す")}
 
 
+# まとめて選んだときの振り分け（上から順に、当てはまった1つだけ）。写真は小さくすると位置情報も消える
+MAKASE = [("gijiroku", AUDIO | TEXT), ("namae", {".pdf"}), ("chiisaku", IMAGE)]
+
+
+def pick(f: Path):
+    return next((ACTIONS[a] for a, exts in MAKASE if f.suffix.lower() in exts), None)
+
+
 def main(argv):
-    if not argv or argv[0] not in ACTIONS and argv[0] != "doctor":
+    if not argv or argv[0] not in ACTIONS and argv[0] not in ("doctor", "makase"):
         print(__doc__)
         return 2
     if argv[0] == "doctor":
         doctor()
         return 0
-    exts, fn, label = ACTIONS[argv[0]]
+    makase = argv[0] == "makase"
+    exts, fn, label = ACTIONS["gijiroku"] if makase else ACTIONS[argv[0]]
     files = [Path(a) for a in argv[1:]]
+    if makase:  # 早く終わる写真・PDFを先に、時間のかかる議事録を最後に
+        first = {"chiisaku": 0, "namae": 1, "gijiroku": 2}
+        files.sort(key=lambda f: first.get(next((a for a, e in MAKASE if f.suffix.lower() in e), ""), 3))
+        label = "まとめて"
     done, errors, made = [], [], []
     for f in files:
+        if makase:
+            hit = pick(f)
+            if not hit:
+                errors.append(f"{f.name}：振り分け先の無い種類なので、そのままにしました")
+                continue
+            exts, fn, _ = hit
         if f.suffix.lower() not in exts:
             errors.append(f"{f.name}：この操作では使えない種類のファイルです")
             continue

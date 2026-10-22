@@ -21,6 +21,8 @@ MENUS = [
     ("中身から名前を付ける（Claude）", "namae", ["com.adobe.pdf"]),
     ("申請用に小さくする", "chiisaku", ["public.image"]),
     ("位置情報を消す", "ichi", ["public.image"]),
+    ("まとめて種類に合わせる（Claude）", "makase",
+     ["public.audio", "public.movie", "public.plain-text", "org.w3.webvtt", "com.adobe.pdf", "public.image"]),
 ]
 
 
