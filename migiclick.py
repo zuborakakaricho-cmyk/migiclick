@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
@@ -181,10 +182,73 @@ def model_path(name):
     return p
 
 
+# ---------- 長い録音：始めた時点でかかる時間の見込みを知らせる ----------
+LONG_MIN = 10                         # これより長い録音には、文字起こしを飛ばせる方法も案内する
+SPEED_FILE = CACHE / "speed.json"     # このパソコンで前に測った「文字起こしの時間÷録音の長さ」
+
+
+def audio_seconds(audio: Path):
+    """録音の長さ（秒）。わからなければ None"""
+    try:
+        import av  # faster-whisper と一緒に入る
+        with av.open(str(audio)) as c:
+            if c.duration:
+                return c.duration / 1_000_000
+    except Exception:
+        pass
+    ffprobe = find("ffprobe")
+    if ffprobe:
+        r = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(audio)],
+                           capture_output=True, text=True)
+        try:
+            return float(r.stdout.strip())
+        except ValueError:
+            pass
+    return None
+
+
+def speed_ratio():
+    try:
+        return float(json.loads(SPEED_FILE.read_text(encoding="utf-8"))["ratio"])
+    except Exception:
+        return 0.2  # 測ったことが無いときの見込み（2020年のIntelのMac・baseで約0.18だった）
+
+
+def save_speed(sec, took):
+    if sec < 30:  # 短い録音は、モデルを読む時間の割合が大きく、見込みがずれるので覚えない
+        return
+    try:
+        CACHE.mkdir(parents=True, exist_ok=True)
+        SPEED_FILE.write_text(json.dumps({"ratio": round(took / sec, 3)}), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def start_message(sec):
+    est = sec * speed_ratio()
+    end = "1分かからずに終わる見込みです" if est < 60 else f"約{round(est / 60)}分かかる見込みです"
+    msg = f"文字起こし中です。{round(sec / 60)}分の録音で、{end}"
+    if sec >= LONG_MIN * 60:
+        msg += "\n長い会議は、iPhoneのボイスメモやZoom・Teamsの文字起こし（.txt・.vtt）を右クリックすると、文字起こしを飛ばせて早く終わります"
+    return msg
+
+
 FW_MODELS = {"base": "base", "small": "small", "large-v3-turbo-q5_0": "large-v3-turbo", "large-v3-turbo": "large-v3-turbo"}
 
 
 def transcribe(audio: Path):
+    """長さを測って見込みを知らせてから、文字にする。かかった時間は次の見込みに使う"""
+    sec = audio_seconds(audio)
+    if sec and sec >= 60:  # 1分より短い録音はすぐ終わるので知らせない
+        notify(start_message(sec))
+    t0 = time.time()
+    text = _transcribe(audio)
+    if sec:
+        save_speed(sec, time.time() - t0)
+    return text
+
+
+def _transcribe(audio: Path):
     """faster-whisper があればそれで（ffmpeg も要らない）。無ければ whisper.cpp（whisper-cli＋ffmpeg）で"""
     try:
         from faster_whisper import WhisperModel
@@ -266,11 +330,12 @@ def do_gijiroku(f: Path):
         t = new_path(f, "文字起こし", ".txt")
         t.write_text(text + "\n", encoding="utf-8")
     why = None if has_claude() else "Claude Code が無い"
+    wait = max(300, len(text) // 50)  # 5分。長い会議の文字（1万5千字を超える）なら、文字の量に合わせて延ばす
     if not why:
         try:
-            memo = ask_claude(cfg()["gijiroku_prompt"], text, wait=300)
+            memo = ask_claude(cfg()["gijiroku_prompt"], text, wait=wait)
         except ClaudeTimeout:
-            why = "Claude Code の返事が5分たっても来なかった"
+            why = f"Claude Code の返事が{wait // 60}分たっても来なかった"
     if why:  # Claude Code が使えないときは、ChatGPTなどに貼る文を作る
         req = cfg()["gijiroku_prompt"] + "\n\n--- 文字起こし ---\n" + text + "\n"
         q = new_path(f, "議事録の頼み方", ".txt")

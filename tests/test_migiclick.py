@@ -57,3 +57,17 @@ def test_makase_photo_and_pdf(tmp_path, monkeypatch):
     assert "架空の写真_500KB以下.jpg" in names
     assert "20261015_株式会社みどり文具_請求書_68,200円.pdf" in names
     assert "表.xlsx" in names  # 振り分け先の無いファイルは触らない
+
+
+def test_long_recording_message(monkeypatch, tmp_path):
+    monkeypatch.setattr(m, "SPEED_FILE", tmp_path / "speed.json")
+    assert m.speed_ratio() == 0.2  # 測ったことが無いときの見込み
+    assert m.start_message(300) == "文字起こし中です。5分の録音で、約1分かかる見込みです"
+    assert "iPhoneのボイスメモ" not in m.start_message(300)
+    m.save_speed(600, 102)  # 10分の録音が102秒で終わった
+    assert m.speed_ratio() == 0.17
+    msg = m.start_message(3600)
+    assert msg.startswith("文字起こし中です。60分の録音で、約10分かかる見込みです")
+    assert "iPhoneのボイスメモ" in msg  # 10分以上なら、文字起こしを飛ばせる方法も案内する
+    m.save_speed(10, 5)  # 短すぎる録音は覚えない
+    assert m.speed_ratio() == 0.17
