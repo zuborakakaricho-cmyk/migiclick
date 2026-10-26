@@ -116,3 +116,40 @@ def test_ichi_heic_xmp(tmp_path):
     Image.new("RGB", (64, 48), "red").save(src, "HEIF", exif=_exif_with_gps().tobytes(), xmp=XMP_GPS)
     assert b"GPSLatitude" in src.read_bytes()
     _check_ichi(src)
+
+
+# ---------- 見込みの時間：モデルを取ってきた回は覚えない ----------
+def test_speed_not_saved_on_first_download(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "SPEED_FILE", tmp_path / "speed.json")
+    monkeypatch.setattr(m, "notify", lambda *a, **k: None)
+    monkeypatch.setattr(m, "audio_seconds", lambda f: 120)
+    monkeypatch.setattr(m, "_transcribe", lambda f: "文字")
+    monkeypatch.setattr(m, "model_cached", lambda: False)
+    m.transcribe(tmp_path / "会議.m4a")
+    assert not (tmp_path / "speed.json").exists()
+    monkeypatch.setattr(m, "model_cached", lambda: True)
+    m.transcribe(tmp_path / "会議.m4a")
+    assert (tmp_path / "speed.json").exists()
+
+
+# ---------- Claude Code には、頼み方も中身も標準入力で渡す（Windowsで改行が切れないように） ----------
+def test_ask_claude_sends_prompt_on_stdin(monkeypatch):
+    seen = {}
+
+    class FakePopen:
+        returncode = 0
+        pid = 0
+
+        def __init__(self, args, **kw):
+            seen["args"] = args
+
+        def communicate(self, data, timeout=None):
+            seen["stdin"] = data
+            return "できた", ""
+
+    monkeypatch.setattr(m, "has_claude", lambda: True)
+    monkeypatch.setattr(m, "find", lambda name: "claude")
+    monkeypatch.setattr(m.subprocess, "Popen", FakePopen)
+    assert m.ask_claude("1行目\n2行目 & | > %", "中身") == "できた"
+    assert seen["args"] == ["claude", "-p"]
+    assert seen["stdin"] == "1行目\n2行目 & | > %\n\n中身"

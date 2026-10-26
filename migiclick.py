@@ -74,7 +74,8 @@ def ask_name(proposed, title="右クリックで事務"):
     if os.environ.get("MIGICLICK_YES"):
         return proposed
     if IS_WIN:
-        ps = ("Add-Type -AssemblyName Microsoft.VisualBasic; "
+        # 返ってくる名前を UTF-8 にする（そのままだと Windows PowerShell は Shift_JIS で返し、日本語が化ける）
+        ps = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName Microsoft.VisualBasic; "
               f"[Microsoft.VisualBasic.Interaction]::InputBox('この名前に変えます。直すならここで直してください','{_ps(title)}','{_ps(proposed)}')")
         r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, encoding="utf-8")
         out = r.stdout.strip()
@@ -148,10 +149,11 @@ def ask_claude(prompt, text, wait=120):
         raise RuntimeError("Claude Code（claude コマンド）が見つかりません。入れていない場合、この操作は使えません")
     # 右クリックのあと何分も待たせないよう、wait 秒で打ち切る。
     # Claude Code が起こした子のプロセスまでまとめて止めないと、打ち切っても戻ってこないことがある
-    p = subprocess.Popen([claude, "-p", prompt], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    # 頼み方も中身も標準入力で渡す（Windows の claude は claude.cmd で cmd.exe を通るので、引数だと改行で切れる）
+    p = subprocess.Popen([claude, "-p"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          text=True, encoding="utf-8", start_new_session=not IS_WIN)
     try:
-        out, err = p.communicate(text, timeout=wait)
+        out, err = p.communicate(f"{prompt}\n\n{text}", timeout=wait)
     except subprocess.TimeoutExpired:
         if IS_WIN:
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
@@ -224,6 +226,16 @@ def save_speed(sec, took):
         pass
 
 
+def model_cached():
+    """文字起こしのモデルがもう手元にあるか（初回は取ってくる時間がかかる）"""
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:
+        return (CACHE / f"ggml-{cfg()['whisper_model']}.bin").exists()
+    name = FW_MODELS.get(cfg()["whisper_model"], cfg()["whisper_model"])
+    return any((CACHE / "fw").glob(f"models--Systran--faster-whisper-{name}*"))
+
+
 def start_message(sec):
     est = sec * speed_ratio()
     end = "1分かからずに終わる見込みです" if est < 60 else f"約{round(est / 60)}分かかる見込みです"
@@ -241,9 +253,10 @@ def transcribe(audio: Path):
     sec = audio_seconds(audio)
     if sec and sec >= 60:  # 1分より短い録音はすぐ終わるので知らせない
         notify(start_message(sec))
+    cached = model_cached()
     t0 = time.time()
     text = _transcribe(audio)
-    if sec:
+    if sec and cached:  # モデルを取ってきた回は、その時間が混ざって見込みが大きくずれるので覚えない
         save_speed(sec, time.time() - t0)
     return text
 
@@ -261,8 +274,7 @@ def _transcribe(audio: Path):
         except ImportError:
             pass
         name = FW_MODELS.get(cfg()["whisper_model"], cfg()["whisper_model"])
-        first = not any((CACHE / "fw").glob(f"models--Systran--faster-whisper-{name}*")) if (CACHE / "fw").exists() else True
-        if first:
+        if not model_cached():
             notify(f"初回だけ、文字起こしのモデル（{name}）を取ってきます。少し時間がかかります")
         model = WhisperModel(name, device="cpu", compute_type="int8", download_root=str(CACHE / "fw"))
         segs, _ = model.transcribe(str(audio), language="ja", vad_filter=True)
