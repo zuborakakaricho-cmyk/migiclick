@@ -75,6 +75,35 @@ def test_long_recording_message(monkeypatch, tmp_path):
     assert m.speed_ratio() == 0.17
 
 
+def test_shrink_video(tmp_path, monkeypatch):
+    import av
+    import numpy as np
+    monkeypatch.setattr(m, "notify", lambda *a, **k: None)
+    src = tmp_path / "縦動画.mov"
+    with av.open(str(src), "w") as c:  # 画質最高で作り、撮った場所と縦向きの印を付ける
+        c.metadata["location"] = "+34.6937+135.5023/"
+        v = c.add_stream("libx264", rate=30)
+        v.width, v.height, v.pix_fmt, v.options = 1280, 720, "yuv420p", {"crf": "0"}
+        v.set_display_rotation(90)
+        rng = np.random.default_rng(0)
+        for _ in range(30):
+            c.mux(v.encode(av.VideoFrame.from_ndarray(rng.integers(0, 255, (720, 1280, 3), dtype=np.uint8), format="rgb24")))
+        c.mux(v.encode())
+    size = src.stat().st_size
+    q, extra = m.do_douga(src)
+    assert q.name == "縦動画_軽量.mp4" and q.stat().st_size < size and "MB→" in extra
+    assert src.stat().st_size == size  # 元は上書きしない
+    with av.open(str(q)) as c:
+        s = c.streams.video[0]
+        assert (s.width, s.height) == (1280, 720) and s.frames == 30
+        assert "location" not in c.metadata  # 撮った場所は写さない
+        assert next(c.decode(s)).rotation == 90  # 縦動画のまま
+
+
+def test_video_is_not_for_douga_in_makase():
+    assert m.pick(Path("会議.mp4"))[2] == "議事録"  # まとめての中の動画は、これまでどおり議事録へ
+
+
 # ---------- 位置情報を消す：iPhoneの写真（JPEGはMPOとして開く／HEICは編集するとXMPに場所が入る） ----------
 XMP_GPS = (b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
            b'<rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" exif:GPSLatitude="34,41.5N"/></rdf:RDF></x:xmpmeta>')

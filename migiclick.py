@@ -8,6 +8,7 @@
   python3 migiclick.py namae      請求書.pdf ... … 中身からファイル名を付ける（中身をClaude Codeに読ませる）
   python3 migiclick.py chiisaku   写真.jpg ...   … 申請用に小さくする（既定500KB以下。手元だけ）
   python3 migiclick.py ichi       写真.jpg ...   … 位置情報（GPS）を消す（手元だけ）
+  python3 migiclick.py douga      動画.mov ...   … 動画の容量を減らす（送れる軽さのMP4。画面は短い辺720に。撮った場所も消える。手元だけ）
   python3 migiclick.py makase     ファイル ...   … まとめて選んだファイルを、種類に合わせて振り分ける
                                                   （録音・メモ→議事録、PDF→名前付け、写真→申請用に小さくする）
   python3 migiclick.py doctor                    … 要る道具がそろっているか確かめる
@@ -36,11 +37,14 @@ CONFIG_FILE = HERE / "config.json"
 DEFAULTS = {
     "whisper_model": "base",          # base（142MB・速い）／small（466MB・正確）／large-v3-turbo-q5_0（547MB・いちばん正確で遅い）
     "max_kb": 500,                    # 申請用に小さくするときの上限
+    "video_px": 720,                  # 動画の容量を減らすときの、画面の短い辺（720＝HD。1080にすると容量は増えるがきれい）
+    "video_crf": 28,                  # 動画の画質（数が大きいほど容量が減り粗くなる。23で元に近い、28で送る用）
     "gijiroku_prompt": "次の文字起こし（または会議のメモ）から、議事録の下書きを作ってください。次の形で、Markdownで書く。\n会議名：〔記入〕　日時：〔記入〕　場所：〔記入〕\n出席者：〔記入〕（録音に出てきた名前：〇〇さん、〇〇さん）\n1. 決まったこと\n2. 宿題（誰が・何を・いつまでに。表にする）\n3. 決まらなかったこと（持ち越し・保留。無ければ「なし」）\n4. 話したこと（議題ごとに短く）\n5. 次回の予定（無ければ「なし」）\n※ 聞き取りに自信のない語（文字起こしの誤りを直した語と、直せなかった語）\n決まり：文字起こしに無いことは書かない。会議名・日時・場所・出席者は文字起こしからわからなければ〔記入〕のまま残す（録音に出てきた名前だけ括弧の中に書く）。聞き取れない所は〔不明〕と書く。録音ではなくメモから作るときは「※ 聞き取りに自信のない語」の欄は書かない。議事録だけを書き、前置き・後書き・こちらへの説明は書かない。",  # 変えたいときは config.json に gijiroku_prompt を書く
 }
 AUDIO = {".m4a", ".mp3", ".wav", ".aac", ".mp4", ".mov", ".m4v", ".caf", ".ogg", ".opus", ".flac", ".aiff", ".aif", ".webm", ".mkv"}
 TEXT = {".txt", ".vtt"}  # 議事録はメモや文字起こしの文字からも作れる
 IMAGE = {".jpg", ".jpeg", ".png", ".heic", ".webp"}
+VIDEO = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}
 
 
 def cfg():
@@ -508,6 +512,58 @@ def do_ichi(f: Path):
     return q, had
 
 
+# ---------- 動画（手元だけ。文字起こしと一緒に入る PyAV で縮める。ffmpeg は要らない） ----------
+def do_douga(f: Path):
+    import av
+    side = int(cfg()["video_px"])
+    sec = audio_seconds(f)
+    if sec and sec >= 60:
+        notify(f"動画の容量を減らしています。{round(sec / 60)}分の動画で、約{max(1, round(sec * 0.9 / 60))}分かかる見込みです")  # 2020年のIntelのMacで動画の長さの0.85倍ほど
+    q = new_path(f, "軽量", ".mp4")
+    try:
+        # 元のメタデータ（撮った場所など）は写さない。向きだけは引き継ぐ
+        with av.open(str(f)) as src, av.open(str(q), "w", options={"movflags": "faststart"}) as dst:
+            if not src.streams.video:
+                raise RuntimeError("映像が入っていません")
+            vin = src.streams.video[0]
+            ain = src.streams.audio[0] if src.streams.audio else None
+            r = min(1.0, side / min(vin.width, vin.height))  # 短い辺を video_px（既定720）まで。小さい動画は大きくしない
+            w, h = int(vin.width * r) // 2 * 2, int(vin.height * r) // 2 * 2
+            vout = dst.add_stream("libx264", rate=vin.average_rate or 30)
+            vout.width, vout.height, vout.pix_fmt = w, h, "yuv420p"
+            vout.codec_context.time_base = vin.time_base
+            vout.options = {"crf": str(cfg()["video_crf"]), "preset": "veryfast"}
+            aout = dst.add_stream("aac", rate=ain.rate or 48000) if ain else None
+            if aout:
+                aout.bit_rate = 96_000
+            turned = False
+            for packet in src.demux(*[s for s in (vin, ain) if s]):
+                for frame in packet.decode():
+                    if packet.stream is vin:
+                        if not turned:
+                            vout.set_display_rotation(frame.rotation)  # iPhoneの縦動画が横倒しにならないように
+                            turned = True
+                        dst.mux(vout.encode(frame.reformat(w, h, "yuv420p")))
+                    else:
+                        frame.pts = None
+                        dst.mux(aout.encode(frame))
+            dst.mux(vout.encode())
+            if aout:
+                dst.mux(aout.encode())
+    except BaseException:
+        q.unlink(missing_ok=True)
+        raise
+    before, after = f.stat().st_size, q.stat().st_size
+    if after >= before:
+        q.unlink()
+        raise RuntimeError("もう十分軽く、これ以上は容量が減りませんでした")
+    return q, f"（{mb(before)}→{mb(after)}）"
+
+
+def mb(n):
+    return f"{n / 1024 / 1024:.1f}MB"
+
+
 # ---------- 道具がそろっているか ----------
 def doctor():
     """機能ごとに使えるかを出す。✕ はその機能が動かないときだけ（無くてよい道具は出さない）"""
@@ -523,20 +579,21 @@ def doctor():
         ("PDFの文字を読む", find("pdftotext") or has("pypdf"), "pdftotext" if find("pdftotext") else "pypdf"),
         ("写真", has("PIL"), "Pillow"),
         ("iPhoneの写真（HEIC）", has("pillow_heif"), "pillow-heif"),
+        ("動画", has("av"), "PyAV"),
     ]
     for k, ok, how in rows:
         print(f"○ {k}（{how}）" if ok else f"✕ {k}：使う道具が見つかりません")
     if find("claude"):
         print("○ Claude Code（議事録・名前付けに使う）")
     else:
-        print("－ Claude Code は入っていません。それでも5つとも動きます"
+        print("－ Claude Code は入っていません。それでも6つとも動きます"
               "（議事録は頼み方をコピー、名前付けは手元で日付・会社名・金額を拾う形）")
     print(f"モデルの置き場所：{CACHE}")
 
 
 ACTIONS = {"gijiroku": (AUDIO | TEXT, do_gijiroku, "議事録"), "mojiokoshi": (AUDIO, do_mojiokoshi, "文字起こし"),
            "namae": ({".pdf", ".txt"}, do_namae, "名前付け"), "chiisaku": (IMAGE, do_chiisaku, "小さくする"),
-           "ichi": (IMAGE, do_ichi, "位置情報を消す")}
+           "ichi": (IMAGE, do_ichi, "位置情報を消す"), "douga": (VIDEO, do_douga, "動画の容量を減らす")}
 
 
 # まとめて選んだときの振り分け（上から順に、当てはまった1つだけ）。写真は小さくすると位置情報も消える
