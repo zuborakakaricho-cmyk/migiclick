@@ -3,6 +3,8 @@ import importlib.util
 import shutil
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("migiclick", ROOT / "migiclick.py")
 m = importlib.util.module_from_spec(spec)
@@ -71,3 +73,46 @@ def test_long_recording_message(monkeypatch, tmp_path):
     assert "iPhoneのボイスメモ" in msg  # 10分以上なら、文字起こしを飛ばせる方法も案内する
     m.save_speed(10, 5)  # 短すぎる録音は覚えない
     assert m.speed_ratio() == 0.17
+
+
+# ---------- 位置情報を消す：iPhoneの写真（JPEGはMPOとして開く／HEICは編集するとXMPに場所が入る） ----------
+XMP_GPS = (b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+           b'<rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" exif:GPSLatitude="34,41.5N"/></rdf:RDF></x:xmpmeta>')
+
+
+def _exif_with_gps():
+    from PIL import Image
+    e = Image.Exif()
+    e[0x0132] = "2026:10:01 12:00:00"  # 撮った日時
+    e.get_ifd(0x8825)[2] = (34.0, 41.0, 30.0)
+    return e
+
+
+def _check_ichi(src):
+    from PIL import Image
+    q, had = m.do_ichi(src)
+    out = Image.open(q)
+    e = out.getexif()
+    assert had
+    assert 0x8825 not in e and b"GPSLatitude" not in q.read_bytes()  # 場所は消える
+    assert e.get(0x0132) == "2026:10:01 12:00:00"  # 撮った日時は残る
+    return out
+
+
+def test_ichi_iphone_jpeg_mpo(tmp_path):
+    from PIL import Image
+    src = tmp_path / "IMG_0001.jpg"
+    Image.new("RGB", (64, 48), "red").save(src, "MPO", save_all=True, append_images=[Image.new("RGB", (32, 24))],
+                                           exif=_exif_with_gps(), xmp=XMP_GPS, quality=95)
+    assert Image.open(src).format == "MPO"
+    out = _check_ichi(src)
+    assert out.format == "JPEG" and out.quantization == Image.open(src).quantization  # 画質は元のまま
+
+
+def test_ichi_heic_xmp(tmp_path):
+    pytest.importorskip("pillow_heif").register_heif_opener()
+    from PIL import Image
+    src = tmp_path / "IMG_0002.heic"
+    Image.new("RGB", (64, 48), "red").save(src, "HEIF", exif=_exif_with_gps().tobytes(), xmp=XMP_GPS)
+    assert b"GPSLatitude" in src.read_bytes()
+    _check_ichi(src)

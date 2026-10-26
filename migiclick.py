@@ -476,11 +476,20 @@ def do_ichi(f: Path):
     had = 0x8825 in exif
     if 0x8825 in exif:
         del exif[0x8825]  # GPSの情報だけ消す（撮った日時などは残す）
+    # XMP（写真アプリなどで編集すると付く）にも場所が入ることがあるので、XMPごと写さない
+    had = had or "GPS" in str(im.info.get("xmp") or "")
+    im.info.pop("xmp", None)
     q = new_path(f, "位置情報なし")
     fmt = im.format or "JPEG"
-    kw = {"exif": exif.tobytes()} if fmt in ("JPEG", "WEBP", "PNG") else {}
+    kw = {"exif": exif.tobytes()} if fmt in ("JPEG", "MPO", "WEBP", "PNG") else {}
     if fmt == "JPEG":
         kw["quality"] = "keep"
+    elif fmt == "MPO":
+        # iPhoneのJPEGはMPO（写真が何枚か入った形）として開く。1枚目をJPEGにする。
+        # "keep" はMPOに使えないので、同じ中身（元の画質の表とサンプリング）を渡す
+        from PIL import JpegImagePlugin
+        fmt = "JPEG"
+        kw.update(qtables=im.quantization, subsampling=JpegImagePlugin.get_sampling(im))
     elif fmt == "HEIF":
         kw = {"exif": exif.tobytes(), "quality": 90}
     im.save(q, fmt, **kw)
