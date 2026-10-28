@@ -374,7 +374,8 @@ BAD = re.compile(r'[\\/:*?"<>|\r\n\t]')
 def pdf_text(f: Path):
     exe = find("pdftotext")
     if exe:
-        r = subprocess.run([exe, "-layout", "-l", "3", str(f), "-"], capture_output=True, **NOWIN)
+        # -enc UTF-8：Windowsの pdftotext（Git for Windows に入っている物など）は既定が Latin1 で、日本語が消える
+        r = subprocess.run([exe, "-layout", "-enc", "UTF-8", "-l", "3", str(f), "-"], capture_output=True, **NOWIN)
         text = r.stdout.decode("utf-8", "ignore")
     else:
         try:
@@ -587,7 +588,7 @@ def doctor():
     if find("claude"):
         print("○ Claude Code（議事録・名前付けに使う）")
     else:
-        print("－ Claude Code は入っていません。それでも6つとも動きます"
+        print("－ Claude Code は入っていません。それでも7つとも動きます"
               "（議事録は頼み方をコピー、名前付けは手元で日付・会社名・金額を拾う形）")
     print(f"モデルの置き場所：{CACHE}")
 
