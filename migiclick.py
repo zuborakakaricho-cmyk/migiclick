@@ -389,7 +389,9 @@ def pdf_text(f: Path):
 
 
 KINDS = ["請求書", "見積書", "納品書", "領収書", "注文書", "契約書"]
-COMPANY = re.compile(r"((?:株式会社|有限会社|合同会社)\s*[^\s　、。御様\d]{1,20}|[^\s　、。\d]{1,20}\s*(?:株式会社|有限会社|合同会社))")
+# 前株（株式会社〇〇）を先に探す。表の見出し（単価 など）と同じ行に並ぶPDFで、後株の形だと見出しまで会社名に入るため
+COMPANY = [re.compile(r"(?:株式会社|有限会社|合同会社)\s*[^\s　、。御様\d]{1,20}"),
+           re.compile(r"[^\s　、。\d]{1,20}\s*(?:株式会社|有限会社|合同会社)")]
 
 
 def guess_info(text):
@@ -406,9 +408,9 @@ def guess_info(text):
     for line in text.splitlines():  # 宛先（御中・様の行）でない会社名を、発行元とみなす
         if "御中" in line or "様" in line:
             continue
-        m = COMPANY.search(line)
+        m = next((m for c in COMPANY if (m := c.search(line))), None)
         if m:
-            info["party"] = re.sub(r"\s+", "", m.group(1))
+            info["party"] = re.sub(r"\s+", "", m.group(0))
             break
     return info
 

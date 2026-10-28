@@ -182,3 +182,10 @@ def test_ask_claude_sends_prompt_on_stdin(monkeypatch):
     assert m.ask_claude("1行目\n2行目 & | > %", "中身") == "できた"
     assert seen["args"] == ["claude", "-p"]
     assert seen["stdin"] == "1行目\n2行目 & | > %\n\n中身"
+
+
+def test_company_next_to_table_header():
+    # Windowsの pdftotext では、表の見出しと会社名が同じ行に並ぶことがある
+    info = m.guess_info("請求書\n品名   数量   単価   株式会社みどり文具\n2026年10月15日\nご請求金額 68,200円")
+    assert info["party"] == "株式会社みどり文具"
+    assert m.guess_info("みどり文具 株式会社\n")["party"] == "みどり文具株式会社"
