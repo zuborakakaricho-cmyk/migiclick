@@ -31,6 +31,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 IS_WIN = platform.system() == "Windows"
+NOWIN = {"creationflags": subprocess.CREATE_NO_WINDOW} if IS_WIN else {}  # Windowsで、呼んだ道具の黒い窓を出さない
 HOME = Path.home()
 CACHE = (Path(os.environ.get("LOCALAPPDATA", HOME)) / "migiclick") if IS_WIN else HOME / ".cache" / "migiclick"
 CONFIG_FILE = HERE / "config.json"
@@ -65,7 +66,7 @@ def notify(msg, title="右クリックで事務"):
         return
     if IS_WIN:
         subprocess.run(["powershell", "-NoProfile", "-Command",
-                        f"Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show('{_ps(msg)}','{_ps(title)}')"])
+                        f"Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show('{_ps(msg)}','{_ps(title)}')"], **NOWIN)
     else:
         # 日本語は文に埋め込まず argv で渡す（json.dumps だと \uXXXX になり AppleScript が読めない）
         subprocess.run(["osascript", "-e", "on run argv",
@@ -81,7 +82,7 @@ def ask_name(proposed, title="右クリックで事務"):
         # 返ってくる名前を UTF-8 にする（そのままだと Windows PowerShell は Shift_JIS で返し、日本語が化ける）
         ps = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type -AssemblyName Microsoft.VisualBasic; "
               f"[Microsoft.VisualBasic.Interaction]::InputBox('この名前に変えます。直すならここで直してください','{_ps(title)}','{_ps(proposed)}')")
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, encoding="utf-8")
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, encoding="utf-8", **NOWIN)
         out = r.stdout.strip()
         return out or None
     script = ('on run argv\n'
@@ -137,7 +138,7 @@ def has_claude():
 
 def to_clipboard(text):
     try:
-        subprocess.run(["clip"] if IS_WIN else ["pbcopy"], input=text.encode("utf-16-le" if IS_WIN else "utf-8"), check=True)
+        subprocess.run(["clip"] if IS_WIN else ["pbcopy"], input=text.encode("utf-16-le" if IS_WIN else "utf-8"), check=True, **NOWIN)
         return True
     except Exception:
         return False
@@ -155,12 +156,12 @@ def ask_claude(prompt, text, wait=120):
     # Claude Code が起こした子のプロセスまでまとめて止めないと、打ち切っても戻ってこないことがある
     # 頼み方も中身も標準入力で渡す（Windows の claude は claude.cmd で cmd.exe を通るので、引数だと改行で切れる）
     p = subprocess.Popen([claude, "-p"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         text=True, encoding="utf-8", start_new_session=not IS_WIN)
+                         text=True, encoding="utf-8", start_new_session=not IS_WIN, **NOWIN)
     try:
         out, err = p.communicate(f"{prompt}\n\n{text}", timeout=wait)
     except subprocess.TimeoutExpired:
         if IS_WIN:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True, **NOWIN)
         else:
             import signal
             os.killpg(p.pid, signal.SIGKILL)
@@ -181,7 +182,7 @@ def model_path(name):
         tmp = p.with_suffix(".part")
         curl = find("curl")  # Mac・Windows 10以降に最初から入っている。Pythonの証明書の設定に左右されない
         if curl:
-            subprocess.run([curl, "-fsSL", "-o", str(tmp), url], check=True)
+            subprocess.run([curl, "-fsSL", "-o", str(tmp), url], check=True, **NOWIN)
         else:
             urllib.request.urlretrieve(url, tmp)
         tmp.rename(p)
@@ -205,7 +206,7 @@ def audio_seconds(audio: Path):
     ffprobe = find("ffprobe")
     if ffprobe:
         r = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(audio)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, **NOWIN)
         try:
             return float(r.stdout.strip())
         except ValueError:
@@ -288,10 +289,10 @@ def _transcribe(audio: Path):
         raise RuntimeError("文字起こしの部品が見つかりません。入れる用のファイルで入れ直してください")
     with tempfile.TemporaryDirectory() as td:
         wav = Path(td) / "in.wav"
-        subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-i", str(audio), "-ar", "16000", "-ac", "1", str(wav)], check=True)
+        subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-i", str(audio), "-ar", "16000", "-ac", "1", str(wav)], check=True, **NOWIN)
         out = Path(td) / "out"
         subprocess.run([whisper, "-m", str(model_path(cfg()["whisper_model"])), "-l", "ja", "-nt", "-otxt", "-of", str(out), "-f", str(wav)],
-                       check=True, capture_output=True)
+                       check=True, capture_output=True, **NOWIN)
         return (out.with_suffix(".txt")).read_text(encoding="utf-8").strip()
 
 
@@ -373,7 +374,7 @@ BAD = re.compile(r'[\\/:*?"<>|\r\n\t]')
 def pdf_text(f: Path):
     exe = find("pdftotext")
     if exe:
-        r = subprocess.run([exe, "-layout", "-l", "3", str(f), "-"], capture_output=True)
+        r = subprocess.run([exe, "-layout", "-l", "3", str(f), "-"], capture_output=True, **NOWIN)
         text = r.stdout.decode("utf-8", "ignore")
     else:
         try:
@@ -653,4 +654,7 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    if sys.stdout is None or sys.stderr is None:  # Windowsの右クリック（窓の無い pythonw）。モデルを取るときの進み具合などで落ちないよう、ログへ書く
+        CACHE.mkdir(parents=True, exist_ok=True)
+        sys.stdout = sys.stderr = open(CACHE / "migiclick.log", "a", encoding="utf-8")
     sys.exit(main(sys.argv[1:]))
