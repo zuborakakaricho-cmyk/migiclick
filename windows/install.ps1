@@ -91,11 +91,14 @@ foreach ($ext in $exts) {
   }
 }
 # 「送る」の中に「まとめて種類に合わせる」。選んだファイルが全部まとめて渡る
-$sc = (New-Object -ComObject WScript.Shell).CreateShortcut($sendto)
+# WScript.Shell は、Windowsの文字コードに無い文字（英語のWindowsでの日本語）を名前に使えないので、英数字の名前で作ってから名前を変える
+$tmp = Join-Path (Split-Path -Parent $sendto) 'migiclick-makase.lnk'
+$sc = (New-Object -ComObject WScript.Shell).CreateShortcut($tmp)
 $sc.TargetPath = $pyw
 $sc.Arguments = ('"{0}" makase' -f $tool)
 $sc.Description = '録音・メモ→議事録、PDF→名前付け、写真→申請用に小さくする（Claude）'
 $sc.Save()
+Move-Item -LiteralPath $tmp -Destination $sendto -Force
 
 & $py $tool doctor
 Write-Host ''
