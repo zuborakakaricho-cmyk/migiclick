@@ -38,7 +38,7 @@ Finderでファイルを右クリック →「クイックアクション」に�
 
 ## 入れ方
 
-1. [Releases](https://github.com/zuborakakaricho-cmyk/migiclick/releases) から `migiclick-mac-v0.5.zip` をダウンロードして開く
+1. [Releases](https://github.com/zuborakakaricho-cmyk/migiclick/releases) から `migiclick-mac-v0.5.1.zip` をダウンロードして開く
 2. 中の「Macに入れる.command」をダブルクリック（必要なものを自動で取ってきます。数分かかります）
 3. 「入れ終わりました」と出たら完了です
 
@@ -52,7 +52,7 @@ Finderでファイルを右クリック →「クイックアクション」に�
 
 自動のテストでは通っていますが、Windowsの実機ではまだ確かめていません。うまく動かないときは Issues で教えてください。
 
-1. [Releases](https://github.com/zuborakakaricho-cmyk/migiclick/releases) から `migiclick-windows-v0.5.zip` をダウンロードし、右クリック →「すべて展開」
+1. [Releases](https://github.com/zuborakakaricho-cmyk/migiclick/releases) から `migiclick-windows-v0.5.1.zip` をダウンロードし、右クリック →「すべて展開」
 2. 展開したフォルダの「Windowsに入れる.cmd」をダブルクリック（必要なものを自動で取ってきます。数分かかります）
 3. 「入れ終わりました」と出たら完了です
 
@@ -72,7 +72,7 @@ Finderでファイルを右クリック →「クイックアクション」に�
 |---|---|
 | 確かめた日 | 2026年10月21日 |
 | パソコン | Mac（macOS 26.5） |
-| Windows | 試験的。GitHub Actions の Windows（英語版）で、入れる・6つのメニューと「送る」のまとめて・外すまでを自動で確かめた（2026年10月29日）。日本語のWindowsの実機では、まだ確かめていません |
+| Windows | 試験的。GitHub Actions の Windows で、入れる・6つのメニューと「送る」のまとめて・外すまでを自動で確かめた。ユーザー名が日本語でスペース入り・表示が日本語の条件でも確かめた（2026年10月29日）。日本語のWindowsの実機では、まだ確かめていません |
 
 ## できないこと・注意
 
