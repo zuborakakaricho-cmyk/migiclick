@@ -71,7 +71,7 @@ jobs:
       - name: 日本語に寄せる
         shell: pwsh
         run: |
-          $u = 'C:\Users\田中 花子'
+          $u = Join-Path (Split-Path $env:USERPROFILE) '田中 花子'
           New-Item -ItemType Directory -Force "$u\AppData\Local", "$u\Desktop\会議 資料" | Out-Null
           Add-Content $env:GITHUB_ENV "LOCALAPPDATA=$u\AppData\Local" -Encoding utf8
           Add-Content $env:GITHUB_ENV "WORK=$u\Desktop\会議 資料" -Encoding utf8

@@ -53,8 +53,12 @@ if (-not (Test-Path -LiteralPath $py)) {
   $tgz = Join-Path $app 'python.tar.gz'
   curl.exe -fsSL -o $tgz "https://github.com/astral-sh/python-build-standalone/releases/download/$pbs/cpython-$pyv+$pbs-x86_64-pc-windows-msvc-install_only.tar.gz"
   Check 'Pythonの取得'
-  tar.exe -xzf $tgz -C $app
-  Check 'Pythonの展開'
+  # tar.exe は日本語の場所を開けない（英語のWindowsでは ? に化ける）ので、入れる場所に移ってから名前だけで展開する
+  Push-Location -LiteralPath $app
+  tar.exe -xzf python.tar.gz
+  $code = $LASTEXITCODE
+  Pop-Location
+  if ($code -ne 0) { throw "Pythonの展開に失敗しました（$code）" }
   Remove-Item -LiteralPath $tgz -Force
 }
 Write-Host '2/4 文字起こし・画像・PDF・動画の部品を入れます…'
