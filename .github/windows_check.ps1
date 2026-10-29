@@ -53,8 +53,8 @@ Menu '画面録画.mp4' 'douga';      Made '画面録画_軽量.mp4'
 
 Write-Host '▶ 送る →「まとめて種類に合わせる」'
 $lnk = Join-Path ([Environment]::GetFolderPath('SendTo')) '右クリックで事務（まとめて種類に合わせる）.lnk'
-$tmp = Join-Path $env:RUNNER_TEMP 'makase.lnk'; Copy-Item -LiteralPath $lnk $tmp  # 日本語の名前のままだと WScript.Shell が読めない
-$sc = (New-Object -ComObject WScript.Shell).CreateShortcut($tmp)
+. (Join-Path $PSScriptRoot '..\windows\lnk.ps1')
+$sc = [Migiclick.Lnk]::Read($lnk)
 $files = 'scan_0012.pdf', '架空の写真.jpg', '会議メモ.txt' | ForEach-Object { '"' + (Join-Path $b $_) + '"' }
-Run-Line ('"{0}" {1} {2}' -f $sc.TargetPath, $sc.Arguments, ($files -join ' '))
+Run-Line ('"{0}" {1} {2}' -f $sc[0], $sc[1], ($files -join ' '))
 Made '*みどり文具*請求書*.pdf' $b; Made '架空の写真_500KB以下.jpg' $b; Made '会議メモ_議事録の頼み方.txt' $b
