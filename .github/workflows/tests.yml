@@ -6,8 +6,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: OSの道具（.github/apt-packages.txt に1行1つ。無ければ飛ばす）
@@ -20,7 +20,7 @@ jobs:
           python -m pip install pytest
           if [ -f requirements-test.txt ]; then python -m pip install -r requirements-test.txt; fi
           python -m pytest -q tests
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: hashFiles('package.json') != ''
         with:
           node-version: "22"
@@ -35,7 +35,7 @@ jobs:
     env:
       PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: 入れる（「Windowsに入れる.cmd」の中身と同じ）
         shell: cmd
         run: powershell -NoProfile -ExecutionPolicy Bypass -File windows\install.ps1
@@ -67,7 +67,7 @@ jobs:
     env:
       PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: 日本語に寄せる
         shell: pwsh
         run: |
